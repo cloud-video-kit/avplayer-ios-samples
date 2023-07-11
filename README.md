@@ -7,19 +7,29 @@ The Swift code presents the implementation of the `PlayerViewController` class, 
   - XCode installed
   - Knowledge of Swift programming language
   - Access to Cloud DRM (via Cloud Video Kit web console) to obtain: 
-    - `videoUrl`
-    - `fpsCertificateUrl`
-    - `x-drm-brandGuid`
-    - `x-drm-userToken`
+    - `videoUrl` - The url to the HLS manifest of the video
+    ![URL](assets/videoUrl.jpg "Video URL")
 
-## Parameters
+    - `fpsCertificateUrl` - Certificate server url
+    ![DRM License URL](assets/certificateUrl.jpg "DRM License URL")
 
-| Parameter   |      Description      |  Where find |
-|----------|:-------------:|------|
-| `videoUrl` | The url to the HLS manifest of the video | ![URL](assets/videoUrl.jpg "Video URL") |
-| `fpsCertificateUrl` | Certificate server url | ![DRM License URL](assets/certificateUrl.jpg "DRM License URL") |
-| `x-drm-brandGuid` | Tenant ID in the Cloud Video Kit | ![BrandGuid](assets/x-drm-brandGuid.jpg "BrandGuid") |
-| `x-drm-userToken` | A token that allows you to issue a license to play drm material. <br>[More information about the structure of the token and how to generate it can be found here](https://developers.drm.cloud/licence-acquisition/licence-acquisition) | <pre lang="json">{<br>  "exp": 1893456000, <br>  "drmTokenInfo": {<br>    "exp": "2030-01-01T00:00:00+00:00", <br>    "kid": ["c7962562-1517-44c2-8937-a1f2c6b849fc"], <br>    "p": { <br>      "pers": false <br>    }<br>  }<br>}</pre> |
+    - `x-drm-brandGuid` - Tenant ID in the Cloud Video Kit
+    ![BrandGuid](assets/x-drm-brandGuid.jpg "BrandGuid")
+    
+    - `x-drm-userToken` - A token that allows you to issue a license to play drm material. <br>[More information about the structure of the token and how to generate it can be found here](https://developers.drm.cloud/licence-acquisition/licence-acquisition)
+    
+    ```json
+    {
+        "exp": 1893456000, 
+        "drmTokenInfo": {
+            "exp": "2030-01-01T00:00:00+00:00", 
+            "kid": ["c7962562-1517-44c2-8937-a1f2c6b849fc"], 
+            "p": { 
+            "pers": false 
+            }
+        }
+    }
+    ```
 
 ## How to Use
 To use `PlayerViewController`, follow these steps:
