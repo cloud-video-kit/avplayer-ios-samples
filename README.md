@@ -1,242 +1,439 @@
 # AVPlayer with Cloud DRM in Swift
 
-The Swift code presents the implementation of the `PlayerViewController` class, which inherits from `AVPlayerViewController` and implements the `AVContentKeySessionDelegate` protocol. This class is responsible for playing videos using the FairPlay Streaming DRM system.
+> [!IMPORTANT]
+> This repository is an educational reference sample, not a production application or an application architecture template. Its code is deliberately direct and compact so that iOS developers can quickly find, read, and reuse the parts required to connect native `AVPlayer` playback and downloads to Cloud DRM. A production application may require additional layering, dependency injection, secure configuration management, analytics, recovery logic, and tests appropriate to its own requirements.
+
+This sample demonstrates FairPlay Streaming (FPS) DRM playback for HLS with Apple's native `AVPlayer`. It also shows license prefetching, downloading FairPlay-protected HLS, storing a persistent content key, offline playback, and deleting downloaded content.
+
+The functionality and simple test-screen layout are inspired by the ExoPlayer Android Samples, while the implementation is native to iOS and uses `AVFoundation`, `AVKit`, and SwiftUI. The project has no external dependencies.
+
+![Cloud DRM FairPlay sample](docs/main-screen.png)
+
+## What This Sample Contains
+
+The main screen accepts five values:
+
+- **HLS URL** - URL of the HLS manifest (`.m3u8`).
+- **Certificate URL** - Cloud DRM FairPlay application certificate endpoint.
+- **License URL** - Cloud DRM license acquisition endpoint.
+- **Brand GUID / Tenant ID** - tenant identifier used by Cloud DRM.
+- **User Token** - token authorizing license acquisition.
+
+It provides four actions:
+
+- **PLAY** - starts playback and lets AVFoundation acquire the FairPlay key on demand.
+- **PREFETCH AND PLAY** - acquires the key first and then opens a paused, ready player.
+- **DOWNLOAD** - downloads the HLS asset and stores a persistent FairPlay key.
+- **DOWNLOADED VIDEOS** - lists, plays, and deletes locally stored assets.
+
+The application does not log in to Cloud Video Kit, retrieve assets or tenants from an API, or generate and inspect user tokens. All connection values are supplied explicitly so the Cloud DRM integration remains visible and easy to follow.
 
 ## Prerequisites
 
-  - XCode installed
-  - Knowledge of Swift programming language
-  - Access to Cloud DRM (via Cloud Video Kit web console) to obtain: 
-    - `videoUrl` - The url to the HLS manifest of the video
-    ![URL](assets/videoUrl.jpg "Video URL")
+- Xcode 26 or a compatible newer version.
+- iOS 17 or later.
+- A physical iPhone or iPad for FairPlay playback and download testing. The user interface can run in the Simulator, but FairPlay Streaming cannot be validated there.
+- Access to Cloud DRM and an FPS-protected HLS asset.
+- A valid HLS URL, certificate URL, license URL, Brand GUID, and user token.
 
-    - `fpsCertificateUrl` - Certificate server url
-    ![DRM License URL](assets/certificateUrl.jpg "DRM License URL")
-
-    - `x-drm-brandGuid` - Tenant ID in the Cloud Video Kit
-    ![BrandGuid](assets/x-drm-brandGuid.jpg "BrandGuid")
-    
-    - `x-drm-userToken` - A token that allows you to issue a license to play drm material. <br>[More information about the structure of the token and how to generate it can be found here](https://developers.drm.cloud/licence-acquisition/licence-acquisition)
-    
-    ```json
-    {
-        "exp": 1893456000, 
-        "drmTokenInfo": {
-            "exp": "2030-01-01T00:00:00+00:00", 
-            "kid": ["c7962562-1517-44c2-8937-a1f2c6b849fc"], 
-            "p": { 
-            "pers": false 
-            }
-        }
-    }
-    ```
+Connection values can be obtained through the [Cloud Video Kit web console](https://console.videokit.cloud/). See the [Cloud DRM token documentation](https://docs.videokit.cloud/developers/cloud-drm/license-acquisition/token) for the user-token format and signing requirements.
 
 ## How to Use
-To use `PlayerViewController`, follow these steps:
 
-1. Create an instance of `PlayerViewController` and assign appropriate values to the properties:
-    - `videoUrl`: URL of the video to be played.
-    - `fpsCertificateUrl`: URL of the FairPlay Streaming certificate.
-    - `brandGuid`: VideoKit TenantId.
-    - `userToken`: DRM token.
-2. Call the `viewDidLoad()` method on the `PlayerViewController` instance to configure the Content Key session and prepare and start video playback.
+1. Open `CloudDrmFairPlaySample.xcodeproj` in Xcode.
+2. Select the `CloudDrmFairPlaySample` scheme and a physical iOS device.
+3. Set a valid Development Team if Xcode asks for signing configuration.
+4. Build and run the application.
+5. Enter the HLS, certificate, license, tenant, and token values.
+6. Choose **PLAY**, **PREFETCH AND PLAY**, or **DOWNLOAD**.
 
-## Description
+The code excerpts below are shortened for readability. The linked source files contain the complete implementation used by the application.
 
-```swift
-import AVKit
-import SwiftUI
-
-class PlayerViewController: AVPlayerViewController, AVContentKeySessionDelegate {
-
-    // URL for the video to be played
-    let videoUrl: String = ""
-    
-    // URL for the FairPlay Streaming certificate
-    let fpsCertificateUrl: String = ""
-    
-    // VideoKit TenantId 
-    let brandGuid: String = ""
-    
-    // DRM token
-    let userToken: String = ""
-    
-    // AVContentKeySession for handling content key requests
-    var contentKeySession: AVContentKeySession!
-    
-    // URLSession for network requests
-    let urlSession: URLSession = URLSession(configuration: .default)
-    
-    // ...
-    // some code
-    // ...
-}
-```
-The `PlayerViewController` class inherits from `AVPlayerViewController` and extends it to support FairPlay Streaming DRM. It includes the following methods and properties:
-
-- `videoUrl`: URL of the video to be played.
-- `fpsCertificateUrl`: URL of the FairPlay Streaming certificate.
-- `brandGuid`: VideoKit TenantId.
-- `userToken`: DRM token.
-- `contentKeySession`: AVContentKeySession instance for handling content key requests.
-- `urlSession`: URLSession instance for network requests.
-
-The `viewDidLoad()` method overrides the `AVPlayerViewController` method and is used for configuring the Content Key session and preparing and starting video playback.
+The URL fields must contain valid `http://` or `https://` URLs. The Brand GUID must be a UUID, and the token cannot be empty. [`FairPlayConfiguration.swift`](CloudDrmFairPlaySample/Model/FairPlayConfiguration.swift) keeps this validation next to the values used by every playback and download path:
 
 ```swift
-// Set up the AVContentKeySession for handling content key requests
-private func setupContentKeySession() {
-    // Create the Content Key Session using the FairPlay Streaming key system.
-    contentKeySession = AVContentKeySession(keySystem: .fairPlayStreaming)
-    
-    /*
-    Set PlayerViewController as the delegate of the Content Key Session.
-    The delegate methods will be called when the session needs to handle key requests.
-    Use a dedicated queue for delegate callbacks.
-    */
-    contentKeySession.setDelegate(self, queue: DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).ContentKeyDelegateQueue"))
-}
-```
+struct FairPlayConfiguration: Equatable, Sendable {
+    let hlsURL: URL
+    let certificateURL: URL
+    let licenseURL: URL
+    let brandGuid: String
+    let userToken: String
 
-The `setupContentKeySession()` method creates an `AVContentKeySession` using the FairPlay Streaming key system. It also sets the `PlayerViewController` as the delegate of the session to handle key requests.
+    init(
+        hlsURL: String,
+        certificateURL: String,
+        licenseURL: String,
+        brandGuid: String,
+        userToken: String
+    ) throws {
+        self.hlsURL = try Self.validHTTPURL(hlsURL, field: "HLS URL")
+        self.certificateURL = try Self.validHTTPURL(certificateURL, field: "Certificate URL")
+        self.licenseURL = try Self.validHTTPURL(licenseURL, field: "License URL")
 
-```swift
-// Create the Content Key Session using the FairPlay Streaming key system
-private func prepareAndPlay() {
-    // Create a URL instance from the video URL string.
-    guard let assetUrl: URL = URL(string: self.videoUrl) else {
-        return
+        let trimmedBrandGuid = brandGuid.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard UUID(uuidString: trimmedBrandGuid) != nil else {
+            throw SampleError.invalidBrandGuid
+        }
+        self.brandGuid = trimmedBrandGuid
+
+        let trimmedToken = userToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedToken.isEmpty else {
+            throw SampleError.missingToken
+        }
+        self.userToken = trimmedToken
     }
-    
-    /*
-    Initialize an AVURLAsset with the asset URL.
-    AVURLAsset represents the media resource that will be played.
-    */
-    let asset: AVURLAsset = AVURLAsset(url: assetUrl)
-    
-    /*
-    Associate the AVURLAsset with the Content Key Session.
-    The Content Key Session will handle key requests for this asset.
-    */
-    contentKeySession.addContentKeyRecipient(asset)
-    
-    /*
-    Initialize an AVPlayerItem with the AVURLAsset.
-    AVPlayerItem represents a single media item that can be played by AVPlayer.
-    */
-    let playerItem: AVPlayerItem = AVPlayerItem(asset: asset)
-    
-    /*
-    Initialize an AVPlayer with the AVPlayerItem.
-    AVPlayer handles the playback of the media content.
-    */
-    let player: AVPlayer = AVPlayer(playerItem: playerItem)
-    
-    /*
-    Set the AVPlayer instance as a reference to the PlayerViewController.
-    The PlayerViewController will manage the display and control of the player.
-    */
-    self.player = player
-    
-    // Start playback.
-    player.play()
 }
 ```
 
-The `prepareAndPlay()` method prepares and starts video playback. It creates an `AVURLAsset` instance based on the video URL, adds the asset to the Content Key session, creates `AVPlayerItem` and `AVPlayer` instances to represent the item to be played and handle playback, sets the `AVPlayer` as a reference in `PlayerViewController`, and starts playback.
+## FairPlay Playback
+
+### 1. Create the content-key session
+
+[`FairPlaySession.swift`](CloudDrmFairPlaySample/DRM/FairPlaySession.swift) owns an `AVContentKeySession` configured for FairPlay Streaming. The asset is added as a content-key recipient, which causes AVFoundation to deliver its key requests to the session delegate.
 
 ```swift
-/*
- This delegate callback is called when the client initiates a key request.
- It is also triggered when AVFoundation determines that the content is encrypted based on the playlist provided by the client during playback request.
-*/
-func contentKeySession(_ session: AVContentKeySession, didProvide keyRequest: AVContentKeyRequest) {
-    // Extract content identifier and license service URL from the key request
-    guard let contentKeyIdentifierString: String = keyRequest.identifier as? String,
-        let contentIdentifier: String = contentKeyIdentifierString.replacingOccurrences(of: "skd://", with: "") as String?,
-        let licenseServiceUrl: String = contentKeyIdentifierString.replacingOccurrences(of: "skd://", with: "https://") as String?,
-        let contentIdentifierData: Data = contentIdentifier.data(using: .utf8)
-    else {
-        print("ERROR: Failed to retrieve the content identifier from the key request!")
-        return
+final class FairPlaySession: NSObject, AVContentKeySessionDelegate {
+    private let contentKeySession = AVContentKeySession(keySystem: .fairPlayStreaming)
+    private var asset: AVURLAsset?
+
+    init(configuration: FairPlayConfiguration) {
+        self.configuration = configuration
+        super.init()
+        contentKeySession.setDelegate(self, queue: .global(qos: .userInitiated))
     }
-    
-    // ...
-    // some code
-    // ...
+
+    func makeStreamingPlayerItem() -> AVPlayerItem {
+        let nextAsset = AVURLAsset(url: configuration.hlsURL)
+        contentKeySession.addContentKeyRecipient(nextAsset)
+        asset = nextAsset
+        return AVPlayerItem(asset: nextAsset)
+    }
 }
 ```
 
-The `contentKeySession(_:didProvide:)` method is called when the client initiates a key request. It processes the content identifier and license service URL from the key request, prepares and sends a streaming content key request to the license service using the Server Playback Context (SPC) data. Upon receiving the Content Key Context (CKC), it creates an `AVContentKeyResponse` and provides it to the `AVContentKeyRequest` to make the protected content available.
+The sample keeps `FairPlaySession` alive for as long as the player is displayed. `PlayerViewModel` creates an `AVPlayer` from the returned item and starts playback:
 
 ```swift
-// Send SPC to the license service to obtain CKC
-guard let url = URL(string: licenseServiceUrl) else {
-    print("ERROR: Missing license service URL!")
-    return
-}
+let session = FairPlaySession(configuration: configuration)
+fairPlaySession = session
 
-var licenseRequest = URLRequest(url: url)
-licenseRequest.httpMethod = "POST"
-
-// Set additional headers for the license service request
-licenseRequest.setValue(strongSelf.brandGuid, forHTTPHeaderField: "x-drm-brandGuid")
-licenseRequest.setValue(strongSelf.userToken, forHTTPHeaderField: "x-drm-usertoken")
-licenseRequest.httpBody = spcData
-
-var dataTask: URLSessionDataTask?
-
-dataTask = self!.urlSession.dataTask(with: licenseRequest, completionHandler: { (data, response, error) in
-    defer {
-        dataTask = nil
-    }
-    
-    if let error = error {
-        print("ERROR: Failed to get CKC: \(error.localizedDescription)")
-    } else if let ckcData = data, let response = response as? HTTPURLResponse, response.statusCode == 200 {
-        // Create AVContentKeyResponse from CKC data
-        let keyResponse = AVContentKeyResponse(fairPlayStreamingKeyResponseData: ckcData)
-        // Provide the content key response to make protected content available for processing
-        keyRequest.processContentKeyResponse(keyResponse)
-    }
-})
-
-dataTask?.resume()
-
+let item = session.makeStreamingPlayerItem()
+let player = AVPlayer(playerItem: item)
+self.player = player
+player.play()
 ```
 
-The completion handler `handleCkcAndMakeContentAvailable` is responsible for making a streaming content key request. It receives two parameters: `spcData` (the Server Playback Context data) and error. Within the completion handler, the code first checks if there is an error. If an error occurs during the preparation of the `SPC` (Server Playback Context), it is logged and reported to AVFoundation by calling keyRequest.processContentKeyResponseError(error). Otherwise, if the `SPC` data is available, it sends the `SPC` to the license service to obtain the Content Key Context `(CKC)`. The license service URL is obtained from the `licenseServiceUrl` variable. The code creates a URLRequest with the necessary headers, including the `brandGuid` and `userToken` values. The SPC data is set as the HTTP body of the request. Subsequently, a URLSessionDataTask is created to perform the license request. Once the response is received, the code checks if there are no errors and if the response status code is 200 (OK). In that case, an AVContentKeyResponse is created using the CKC data, and the content key response is provided to make the protected content available for processing by calling keyRequest.processContentKeyResponse(keyResponse).
+### 2. Handle the FairPlay key request
+
+When encrypted HLS playback needs a key, AVFoundation calls `contentKeySession(_:didProvide:)`. The sample then performs the standard FairPlay exchange:
+
+1. Read the `skd://` content-key identifier.
+2. Download the FairPlay application certificate.
+3. Ask AVFoundation to generate an SPC (Server Playback Context).
+4. Send the SPC to Cloud DRM and receive a CKC (Content Key Context).
+5. Return the CKC to AVFoundation as an `AVContentKeyResponse`.
 
 ```swift
-/*
- Requests the Application Certificate.
-*/
-func requestApplicationCertificate() throws -> Data {
-    var applicationCertificate: Data? = nil
-    
+func contentKeySession(
+    _ session: AVContentKeySession,
+    didProvide keyRequest: AVContentKeyRequest
+) {
+    Task {
+        do {
+            let identifier = try FairPlayConfiguration.contentIdentifier(
+                from: keyRequest.identifier
+            )
+            let certificate = try await licenseClient.fetchCertificate(
+                configuration: configuration
+            )
+            let spcData = try await makeSPC(
+                for: keyRequest,
+                certificate: certificate,
+                contentIdentifier: identifier.data
+            )
+            let ckcData = try await licenseClient.acquireLicense(
+                configuration: configuration,
+                keyIdentifier: identifier.raw,
+                spcData: spcData
+            )
+
+            keyRequest.processContentKeyResponse(
+                AVContentKeyResponse(fairPlayStreamingKeyResponseData: ckcData)
+            )
+        } catch {
+            keyRequest.processContentKeyResponseError(error)
+        }
+    }
+}
+```
+
+The SPC is produced by the native FairPlay API. This sample requests FairPlay protocol version 1; it does not expose an SPC version selector.
+
+```swift
+keyRequest.makeStreamingContentKeyRequestData(
+    forApp: certificate,
+    contentIdentifier: contentIdentifier,
+    options: [AVContentKeyRequestProtocolVersionsKey: [1]]
+) { data, error in
+    // Resume with SPC data or report the error to AVFoundation.
+}
+```
+
+### 3. Request the certificate and license
+
+[`FairPlayLicenseClient.swift`](CloudDrmFairPlaySample/DRM/FairPlayLicenseClient.swift) contains the two network operations needed by the DRM flow. Certificate acquisition is a GET request with the tenant and token in the query:
+
+```swift
+components.queryItems = (components.queryItems ?? []) + [
+    URLQueryItem(name: "brandGuid", value: configuration.brandGuid),
+    URLQueryItem(name: "usertoken", value: configuration.userToken)
+]
+
+let (data, response) = try await urlSession.data(from: url)
+```
+
+License acquisition sends the raw SPC body and Cloud DRM headers:
+
+```swift
+var request = URLRequest(url: licenseURL)
+request.httpMethod = "POST"
+request.httpBody = spcData
+request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+request.setValue(configuration.brandGuid, forHTTPHeaderField: "x-drm-brandGuid")
+request.setValue(configuration.userToken, forHTTPHeaderField: "x-drm-usertoken")
+
+let (data, response) = try await urlSession.data(for: request)
+```
+
+The certificate may be returned as raw DER, base64, or PEM. The CKC may be returned as raw bytes or as `{ "ckc": "<base64>" }` JSON.
+
+### 4. Build the license URL
+
+The configured License URL provides the host and path. The app replaces its query with:
+
+- `brandGuid` from the form;
+- `KID` and `IV` copied from the HLS `skd://` key identifier.
+
+The user token is sent in a request header and is never added to the license URL.
+
+```swift
+func licenseRequestURL(for keyIdentifier: String) -> URL {
+    var components = URLComponents(
+        url: licenseURL,
+        resolvingAgainstBaseURL: false
+    )!
+
+    var queryItems = [URLQueryItem(name: "brandGuid", value: brandGuid)]
+    if let keyComponents = URLComponents(string: keyIdentifier) {
+        for item in keyComponents.queryItems ?? []
+            where ["kid", "iv"].contains(item.name.lowercased()) {
+            queryItems.append(item)
+        }
+    }
+
+    components.queryItems = queryItems
+    return components.url ?? licenseURL
+}
+```
+
+## License Prefetching
+
+**PLAY** relies on normal, lazy AVFoundation key acquisition. **PREFETCH AND PLAY** demonstrates how to acquire the license before the user starts playback.
+
+[`HLSKeyURIResolver.swift`](CloudDrmFairPlaySample/DRM/HLSKeyURIResolver.swift) first reads the HLS playlist and resolves the first `skd://` URI. If the supplied URL is a master playlist, it follows the first variant playlist. The session then explicitly starts a content-key request and waits until the delegate has processed the CKC:
+
+```swift
+let keyURI = try await resolver.fairPlayKeyURI(from: configuration.hlsURL)
+let certificate = try await licenseClient.fetchCertificate(configuration: configuration)
+
+let nextAsset = AVURLAsset(url: configuration.hlsURL)
+contentKeySession.addContentKeyRecipient(nextAsset)
+asset = nextAsset
+prefetchedCertificate = certificate
+
+try await withCheckedThrowingContinuation { continuation in
+    prefetchContinuation = continuation
+    contentKeySession.processContentKeyRequest(
+        withIdentifier: keyURI,
+        initializationData: nil,
+        options: nil
+    )
+}
+
+return AVPlayerItem(asset: nextAsset)
+```
+
+The player opens paused and displays **Ready** after the key exchange succeeds. Diagnostic messages are written with `OSLog`; there is intentionally no request-history or HTTP-diagnostics screen in the app.
+
+## Download and Offline Playback
+
+### Persistent-license token
+
+Online playback and offline download use user tokens supplied by the developer. The app does not create, decode, alter, or persist them.
+
+For a download, Cloud DRM must be allowed to issue a persistent FairPlay license. A token payload can include the following FairPlay persistence claims:
+
+```json
+{
+  "exp": 1893456000,
+  "kid": ["*"],
+  "fairplay": {
+    "persistent": true,
+    "offline_storage_duration": 86400
+  }
+}
+```
+
+The exact token structure and signing rules are defined by the [Cloud DRM token documentation](https://docs.videokit.cloud/developers/cloud-drm/license-acquisition/token).
+
+### Download the HLS package
+
+[`FairPlayDownloadManager.swift`](CloudDrmFairPlaySample/Downloads/FairPlayDownloadManager.swift) uses `AVAssetDownloadURLSession`, the native API for downloading HLS assets. The asset is also registered with an `AVContentKeySession` so the download can obtain its key.
+
+```swift
+let asset = AVURLAsset(url: configuration.hlsURL)
+let keySession = AVContentKeySession(keySystem: .fairPlayStreaming)
+keySession.setDelegate(self, queue: .global(qos: .userInitiated))
+keySession.addContentKeyRecipient(asset)
+
+let task = downloadSession.makeAssetDownloadTask(
+    asset: asset,
+    assetTitle: displayName,
+    assetArtworkData: nil,
+    options: nil
+)
+task?.resume()
+```
+
+The sample supports one active download at a time. The button changes to **CANCEL** while the task is running, and incomplete package and key files are removed after cancellation or failure.
+
+### Create and store a persistent key
+
+A normal `AVContentKeyRequest` is upgraded to an `AVPersistableContentKeyRequest`:
+
+```swift
+func contentKeySession(
+    _ session: AVContentKeySession,
+    didProvide keyRequest: AVContentKeyRequest
+) {
     do {
-        // Load the FairPlay application certificate from the specified URL.
-        applicationCertificate = try Data(contentsOf: URL(string: fpsCertificateUrl)!)
+        try keyRequest.respondByRequestingPersistableContentKeyRequestAndReturnError()
     } catch {
-        // Handle any errors that occur while loading the certificate.
-        let errorMessage = "Failed to load the FairPlay application certificate. Error: \(error)"
-        print(errorMessage)
-        throw error
+        keyRequest.processContentKeyResponseError(error)
     }
-    
-    // Return the loaded application certificate.
-    return applicationCertificate!
 }
 ```
 
-The `requestApplicationCertificate()` method requests the application certificate for FairPlay content key requests. It loads the certificate from the specified URL and returns it as data.
+After the certificate, SPC, and CKC exchange, the CKC is converted into a persistable key and stored locally:
 
-To use the `PlayerViewController` class correctly, provide appropriate values for the `videoUrl`, `fpsCertificateUrl`, `brandGuid`, and `userToken` properties. After calling the `viewDidLoad()` method, the player will start playing the video using FairPlay Streaming DRM.
+```swift
+let persistentKey = try keyRequest.persistableContentKey(
+    fromKeyVendorResponse: ckcData,
+    options: nil
+)
+try persistentKey.write(to: keyURL, options: .atomic)
 
-## License
+keyRequest.processContentKeyResponse(
+    AVContentKeyResponse(fairPlayStreamingKeyResponseData: persistentKey)
+)
+```
 
-This project is licensed under the [MIT License](LICENSE).
+The download is added to **DOWNLOADED VIDEOS** only after both the HLS package and persistent key are available.
+
+### Play without network access
+
+[`OfflineFairPlaySession.swift`](CloudDrmFairPlaySample/Downloads/OfflineFairPlaySession.swift) registers the local HLS package with a new content-key session. Instead of contacting the certificate and license endpoints, it returns the stored persistent key:
+
+```swift
+func contentKeySession(
+    _ session: AVContentKeySession,
+    didProvide keyRequest: AVPersistableContentKeyRequest
+) {
+    keyRequest.processContentKeyResponse(
+        AVContentKeyResponse(
+            fairPlayStreamingKeyResponseData: persistentKeyData
+        )
+    )
+}
+```
+
+Deleting an item removes the downloaded HLS package, persistent key, and metadata record.
+
+## Cloud DRM HTTP Contract
+
+Certificate request:
+
+```http
+GET <certificateURL>?brandGuid=<brandGuid>&usertoken=<userToken>
+```
+
+License request:
+
+```http
+POST <licenseURL>?brandGuid=<brandGuid>&KID=<kid>&IV=<iv>
+Content-Type: application/octet-stream
+x-drm-brandGuid: <brandGuid>
+x-drm-usertoken: <userToken>
+
+<raw SPC bytes>
+```
+
+## Project Structure
+
+The source is split only by responsibility, keeping the DRM path short enough to follow from the screen to AVFoundation and Cloud DRM:
+
+```text
+CloudDrmFairPlaySample/
+  App/CloudDrmFairPlaySampleApp.swift
+  Views/ContentView.swift
+  Views/PlayerView.swift
+  Views/DownloadedVideosView.swift
+  Model/FairPlayConfiguration.swift
+  DRM/FairPlaySession.swift
+  DRM/FairPlayLicenseClient.swift
+  DRM/HLSKeyURIResolver.swift
+  Downloads/FairPlayDownloadManager.swift
+  Downloads/OfflineFairPlaySession.swift
+  Downloads/DownloadedAsset.swift
+```
+
+There are no repository, use-case, service-locator, or dependency-injection layers. This is intentional for this reference sample. The application is designed to explain the integration sequence, not prescribe the architecture of a client application.
+
+## Storage and Logging
+
+Completed download metadata is stored in:
+
+```text
+Application Support/CloudDrmFairPlaySample/downloaded-assets.json
+```
+
+Persistent keys are stored in:
+
+```text
+Application Support/CloudDrmFairPlaySample/FairPlayKeys/
+```
+
+The user token, SPC, and CKC are not written to disk. Basic lifecycle and error messages are emitted to the Xcode console through `OSLog`, using subsystem `com.insys.CloudDrmFairPlaySample`. The sample does not include an in-app log panel, request history, request comparison, SPC decoding, or advanced HTTP diagnostics.
+
+## Known Limitations
+
+- FairPlay playback and persistent-key behavior must be tested on a physical iOS device.
+- The prefetch playlist resolver follows the first HLS variant and searches up to four playlist levels.
+- The reference download flow handles one active download at a time.
+- Each downloaded record stores one FairPlay key identifier.
+- Restoring an unfinished download after the application is force-quit is outside this sample's scope because the user token is deliberately not persisted.
+- Production concerns such as credential storage, certificate pinning, telemetry, background-session restoration policy, and application-specific architecture are left to the integrating application.
+
+## Troubleshooting
+
+- **No FairPlay key URI** - verify that the master or media playlist contains `#EXT-X-KEY` or `#EXT-X-SESSION-KEY` with a `URI="skd://..."` value.
+- **Certificate request failed** - check the Certificate URL, Brand GUID, token, and HTTP response status.
+- **License request failed** - check the License URL, token expiry, allowed KIDs, and Brand GUID.
+- **Persistent key creation failed** - use a token that permits persistent FairPlay licenses.
+- **Playback fails in the Simulator** - deploy to a physical iPhone or iPad.
+- **More detail is needed** - open the Xcode console and filter by `com.insys.CloudDrmFairPlaySample`.
 
 ## Acknowledgements
 
-[AVPlayer](https://developer.apple.com/documentation/avfoundation/avplayer/) - An media player for iOS.
+- [AVFoundation and FairPlay Streaming](https://developer.apple.com/streaming/fps/) - Apple's native playback and DRM technologies for HLS.
+- [Cloud DRM documentation](https://docs.videokit.cloud/developers/cloud-drm) - Cloud DRM integration documentation.
